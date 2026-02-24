@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         YouTube/B站播放速度控制
+// @name         YouTube/B站 播放速度控制
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2
 // @description  在YouTube和B站视频播放页面上按键+增加播放速度，按键-减小播放速度
 // @author       Leen
-// @match        https://www.youtube.com/watch*
+// @match        https://www.youtube.com/*
+// @match        https://www.youtube.com/watch?v=*
 // @match        https://www.bilibili.com/video/*
 // @grant        none
-// @run-at       document-end
 // ==/UserScript==
 
 (function () {
@@ -48,6 +48,7 @@
         notification.textContent = message;
         notification.style.display = 'block';
         notification.style.opacity = '1';
+        console.log(message);
 
         // 设置定时器，自动隐藏通知
         setTimeout(() => {
@@ -82,8 +83,83 @@
         showNotification(`播放速度: ${newSpeed.toFixed(2)}x`);
     }
 
+    // ========== 新增：超限音量控制相关 ==========
+    let extraVolume = 1; // 超限音量倍数，1为正常
+    let gainNode = null;
+    let audioCtx = null;
+    let sourceNode = null;
+    let lastVideo = null;
+
+    function applyExtraVolume(video, factor) {
+        if (!video) return;
+        if (factor <= 1) {
+            // 恢复原生音量
+            if (gainNode && sourceNode) {
+                try {
+                    sourceNode.disconnect();
+                    gainNode.disconnect();
+                } catch (e) {}
+                try {
+                    sourceNode.connect(audioCtx.destination);
+                } catch (e) {}
+            }
+            extraVolume = 1;
+            showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
+            return;
+        }
+        // 初始化Web Audio API
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (!sourceNode || lastVideo !== video) {
+            if (sourceNode) {
+                try { sourceNode.disconnect(); } catch (e) {}
+            }
+            sourceNode = audioCtx.createMediaElementSource(video);
+            lastVideo = video;
+        }
+        if (!gainNode) {
+            gainNode = audioCtx.createGain();
+        }
+        gainNode.gain.value = factor;
+        try {
+            sourceNode.disconnect();
+        } catch (e) {}
+        sourceNode.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        extraVolume = factor;
+        showNotification(`超限音量: ${(video.volume * 100 * factor).toFixed(0)}%`);
+    }
+
+    function handleVolumeKeyByBracket(event, isUp) {
+        const video = getVideoElement();
+        if (!video) return;
+        // 只有音量大于等于100%或已超限时才允许调节
+        if (video.volume >= 1 || extraVolume > 1) {
+            if (isUp) {
+                // 增大超限音量
+                if (extraVolume === 1) {
+                    applyExtraVolume(video, 1.5);
+                } else {
+                    applyExtraVolume(video, Math.min(extraVolume + 0.5, 5));
+                }
+                event.preventDefault();
+            } else {
+                // 减小超限音量
+                if (extraVolume > 1) {
+                    if (extraVolume - 0.5 <= 1) {
+                        applyExtraVolume(video, 1);
+                    } else {
+                        applyExtraVolume(video, extraVolume - 0.5);
+                    }
+                    event.preventDefault();
+                }
+            }
+        }
+    }
+
     // 键盘事件监听
-    document.addEventListener('keydown', function (event) {
+    function handleKeyDown(event) {
         // 忽略在输入框中的按键事件
         if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.isContentEditable) {
             return;
@@ -99,24 +175,54 @@
             changePlaybackSpeed(-config.speedIncrement);
             event.preventDefault();
         }
+        // 用 [ ] 控制超限音量
+        else if (event.key === ']') {
+            handleVolumeKeyByBracket(event, true);
+        } else if (event.key === '[') {
+            handleVolumeKeyByBracket(event, false);
+        }
+        // 其它自定义调试键
+        else if (event.key === 'd') {
+            const video = getVideoElement();
+            if (video) {
+                video.volume = 3;
+                showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
+            }
+        }
+    }
+
+    // 空格键释放时恢复用户设置的速度
+    document.addEventListener('keyup', function(event) {
+        if (event.key === ' ') {
+            //console.log('22222222');
+            const video = getVideoElement();
+            if (video && video.playbackRate === 2.0) {
+                //console.log('1111111');
+
+                // video.playbackRate = userSetSpeed;
+                // showNotification(`恢复播放: ${userSetSpeed.toFixed(2)}x`);
+                event.preventDefault();
+            }
+        }
     });
 
     // 初始化通知
     function init() {
-        const video = getVideoElement();
-        if (video) {
-            showNotification(`当前播放速度: ${video.playbackRate.toFixed(2)}x`);
-        } else {
-            // 如果视频元素还没加载，稍后再试
-            setTimeout(init, 1000);
-        }
+        // const video = getVideoElement();
+        // if (video) {
+        //     //showNotification(`当前播放速度: ${video.playbackRate.toFixed(2)}x`);
+        // } else {
+        //     // 如果视频元素还没加载，稍后再试
+        //     setTimeout(init, 1000);
+        // }
+
+        setTimeout(() => {
+            document.addEventListener('keydown', handleKeyDown);
+            console.log('播放速度控制脚本已加载');
+        }, 2000); // 2 seconds delay
     }
 
     // 页面加载完成后初始化
-    // window.addEventListener('load', init);
-
-    // 也可以立即尝试初始化，以防页面已经加载
-    // setTimeout(init, 1500);
-
-    console.log('播放速度控制脚本已加载');
+    window.addEventListener('load', init);
+    window.addEventListener('yt-navigate-finish', init);
 })();
