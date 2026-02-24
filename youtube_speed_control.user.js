@@ -1,12 +1,14 @@
 // ==UserScript==
-// @name         YouTube/B站 播放速度控制
+// @name         视频网站 播放控制
 // @namespace    http://tampermonkey.net/
-// @version      0.2
-// @description  在YouTube和B站视频播放页面上按键+增加播放速度，按键-减小播放速度
+// @version      1.0
+// @description  在YouTube和B站视频播放页面上按键+增加播放速度，按键-减小播放速度；在虎牙按f全屏
 // @author       Leen
 // @match        https://www.youtube.com/*
 // @match        https://www.youtube.com/watch?v=*
 // @match        https://www.bilibili.com/video/*
+// @match        https://live.bilibili.com/*
+// @match        https://www.huya.com/*
 // @grant        none
 // ==/UserScript==
 
@@ -62,13 +64,23 @@
     // 获取当前视频元素
     function getVideoElement() {
         // YouTube视频选择器
-        const youtubeVideo = document.querySelector('video.html5-main-video');
+        const youtubeVideo = document.querySelector('video.html5-main-video');//标签名 class
         if (youtubeVideo) return youtubeVideo;
         
         // B站视频选择器
         const bilibiliVideo = document.querySelector('video.bilibili-player-video') 
-                            || document.querySelector('.bpx-player-video-wrap video');
-        return bilibiliVideo;
+                            || document.querySelector('.bpx-player-video-wrap video'); //class元素内部的video
+        if (bilibiliVideo) return bilibiliVideo;
+
+        // 虎牙视频选择器
+        const huyaVideo = document.querySelector('#hy-video');//id
+        if (huyaVideo) return huyaVideo;
+
+        // 普通视频选择器
+        const video = document.querySelector('video');//标签名
+        if (video) return video;
+
+        return null;
     }
 
     // 改变播放速度
@@ -165,6 +177,8 @@
             return;
         }
 
+        const video = getVideoElement();
+
         // 按键 + 增加速度
         if (event.key === '+' || event.key === '=') {
             changePlaybackSpeed(config.speedIncrement);
@@ -183,10 +197,59 @@
         }
         // 其它自定义调试键
         else if (event.key === 'd') {
-            const video = getVideoElement();
             if (video) {
                 video.volume = 3;
                 showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
+            }
+        }
+        // M 键 - 静音/取消静音
+        else if (event.key === 'm' || event.key === 'M') {
+            if(window.location.hostname.includes('huya.com')) {
+                const muteBtn = document.getElementById('player-sound-btn');
+                if (muteBtn) {
+                    muteBtn.click();
+                    event.preventDefault();
+                }
+            }
+            else {
+                if (video) {
+                    video.muted = !video.muted;
+                    event.preventDefault();
+                }
+            }
+        }
+        // F键点击全屏按钮
+        else if (event.key === 'f' || event.key === 'F') {
+            if (window.location.hostname.includes('huya.com')) {
+                const fullscreenBtn = document.getElementById('player-fullscreen-btn');
+                if (fullscreenBtn) {
+                    fullscreenBtn.click();
+                    event.preventDefault();
+                }
+            }
+            else {
+                if (video) {
+                    if (video.requestFullscreen) {
+                        video.requestFullscreen();
+                    } else if (video.webkitRequestFullscreen) {
+                        video.webkitRequestFullscreen();
+                    } else if (video.msRequestFullscreen) {
+                        video.msRequestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                    event.preventDefault();
+                }
+            }
+        }
+        //P键剧场模式
+        else if (event.key === 'p' || event.key === 'P') {
+            if(window.location.hostname.includes('huya.com')) {
+                const playBtn = document.getElementById('player-fullpage-btn');
+                if (playBtn) {
+                    playBtn.click();
+                    event.preventDefault();
+                }
             }
         }
     }
@@ -194,10 +257,8 @@
     // 空格键释放时恢复用户设置的速度
     document.addEventListener('keyup', function(event) {
         if (event.key === ' ') {
-            //console.log('22222222');
             const video = getVideoElement();
             if (video && video.playbackRate === 2.0) {
-                //console.log('1111111');
 
                 // video.playbackRate = userSetSpeed;
                 // showNotification(`恢复播放: ${userSetSpeed.toFixed(2)}x`);
@@ -225,4 +286,6 @@
     // 页面加载完成后初始化
     window.addEventListener('load', init);
     window.addEventListener('yt-navigate-finish', init);
+    // 直接调用，防止事件已触发过导致监听不到
+    init();
 })();
