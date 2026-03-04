@@ -4,11 +4,11 @@
 // @version      1.0
 // @description  在YouTube和B站视频播放页面上按键+增加播放速度，按键-减小播放速度；在虎牙按f全屏
 // @author       Leen
-// @match        https://www.youtube.com/*
-// @match        https://www.youtube.com/watch?v=*
-// @match        https://www.bilibili.com/video/*
-// @match        https://live.bilibili.com/*
-// @match        https://www.huya.com/*
+// @match        *://www.youtube.com/*
+// @match        *://www.youtube.com/watch?v=*
+// @match        *://www.bilibili.com/video/*
+// @match        *://live.bilibili.com/*
+// @match        *://www.huya.com/*
 // @grant        none
 // ==/UserScript==
 
@@ -211,11 +211,9 @@
                     event.preventDefault();
                 }
             }
-            else {
-                if (video) {
-                    video.muted = !video.muted;
-                    event.preventDefault();
-                }
+            else if(window.location.hostname.includes('live.bilibili.com')){
+                imitataMouseMove(video, 0, 0);
+                document.querySelectorAll('.left-area .icon')[2].click()
             }
         }
         // F键点击全屏按钮
@@ -227,19 +225,9 @@
                     event.preventDefault();
                 }
             }
-            else {
-                if (video) {
-                    if (video.requestFullscreen) {
-                        video.requestFullscreen();
-                    } else if (video.webkitRequestFullscreen) {
-                        video.webkitRequestFullscreen();
-                    } else if (video.msRequestFullscreen) {
-                        video.msRequestFullscreen();
-                    } else {
-                        document.exitFullscreen();
-                    }
-                    event.preventDefault();
-                }
+            else if(window.location.hostname.includes('live.bilibili.com')){
+                imitataMouseMove(video, 0, 0);
+                document.querySelectorAll('.right-area .icon')[0].click()
             }
         }
         //P键剧场模式
@@ -250,6 +238,10 @@
                     playBtn.click();
                     event.preventDefault();
                 }
+            }
+            else if(window.location.hostname.includes('live.bilibili.com')){
+                imitataMouseMove(video, 0, 0);
+                document.querySelectorAll('.right-area .icon')[1].click();
             }
         }
     }
@@ -266,6 +258,24 @@
             }
         }
     });
+
+    /* 鼠标按键事件模拟 */
+    function imitateMouseClick(type, oElement, iClientX, iClientY) {
+        var oEvent;
+        oEvent = document.createEvent("MouseEvents");
+        var rect = oElement.getBoundingClientRect();
+        oEvent.initMouseEvent(type, true, true, document.defaultView, 0, 0, 0, rect.x + iClientX, rect.y + iClientY, false, false, false, false, 0, null);
+        oElement.dispatchEvent(oEvent);
+    }
+
+    /* 鼠标移动事件模拟 */
+    function imitataMouseMove(oElement, clientX, clientY) {
+        var doc = oElement.ownerDocument;
+        var win = doc.defaultView || doc.parentWindow;
+        var mousemove = document.createEvent("MouseEvent");
+        mousemove.initMouseEvent("mousemove", true, true, win, 0, clientX, clientY, clientX, clientY, 0, 0, 0, 0, 0, null);
+        oElement.dispatchEvent(mousemove);
+    }
 
     // 初始化通知
     function init() {
