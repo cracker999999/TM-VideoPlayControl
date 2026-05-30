@@ -24,6 +24,10 @@
         notificationDuration: 1000 // 通知显示时间（毫秒）
     };
 
+    // 网站检测
+    const isHuya = () => window.location.hostname.includes('huya.com');
+    const isBiliBiliLive = () => window.location.hostname.includes('live.bilibili.com');
+
     // 创建通知元素
     let notification = document.createElement('div');
     notification.style.cssText = `
@@ -61,26 +65,18 @@
         }, config.notificationDuration);
     }
 
-    // 获取当前视频元素
+    // 获取当前视频元素（带缓存）
+    let cachedVideo = null;
     function getVideoElement() {
-        // YouTube视频选择器
-        const youtubeVideo = document.querySelector('video.html5-main-video');//标签名 class
-        if (youtubeVideo) return youtubeVideo;
-        
-        // B站视频选择器
-        const bilibiliVideo = document.querySelector('video.bilibili-player-video') 
-                            || document.querySelector('.bpx-player-video-wrap video'); //class元素内部的video
-        if (bilibiliVideo) return bilibiliVideo;
+        if (cachedVideo && document.contains(cachedVideo)) return cachedVideo;
 
-        // 虎牙视频选择器
-        const huyaVideo = document.querySelector('#hy-video');//id
-        if (huyaVideo) return huyaVideo;
+        cachedVideo = document.querySelector('video.html5-main-video') //YouTube
+                   || document.querySelector('video.bilibili-player-video') //b站
+                   || document.querySelector('.bpx-player-video-wrap video') //b站
+                   || document.querySelector('#hy-video') //虎牙
+                   || document.querySelector('video');
 
-        // 普通视频选择器
-        const video = document.querySelector('video');//标签名
-        if (video) return video;
-
-        return null;
+        return cachedVideo;
     }
 
     // 改变播放速度
@@ -95,51 +91,57 @@
         showNotification(`播放速度: ${newSpeed.toFixed(2)}x`);
     }
 
-    // ========== 新增：超限音量控制相关 ==========
-    let extraVolume = 1; // 超限音量倍数，1为正常
-    let gainNode = null;
-    let audioCtx = null;
-    let sourceNode = null;
-    let lastVideo = null;
+    // ========== 超限音量控制 ==========
+    const audioState = {
+        extraVolume: 1,
+        gainNode: null,
+        audioCtx: null,
+        sourceNode: null,
+        lastVideo: null
+    };
+
+    function safeDisconnect(node) {
+        try { node?.disconnect(); } catch (e) {}
+    }
+
+    // 初始化Web Audio API
+    function initAudioContext(video) {
+        if (!audioState.audioCtx) {
+            audioState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (!audioState.sourceNode || audioState.lastVideo !== video) {
+            safeDisconnect(audioState.sourceNode);
+            audioState.sourceNode = audioState.audioCtx.createMediaElementSource(video);
+            audioState.lastVideo = video;
+        }
+        if (!audioState.gainNode) {
+            audioState.gainNode = audioState.audioCtx.createGain();
+        }
+    }
 
     function applyExtraVolume(video, factor) {
         if (!video) return;
+
         if (factor <= 1) {
             // 恢复原生音量
-            if (gainNode && sourceNode) {
+            if (audioState.gainNode && audioState.sourceNode) {
+                safeDisconnect(audioState.sourceNode);
+                safeDisconnect(audioState.gainNode);
                 try {
-                    sourceNode.disconnect();
-                    gainNode.disconnect();
-                } catch (e) {}
-                try {
-                    sourceNode.connect(audioCtx.destination);
+                    audioState.sourceNode.connect(audioState.audioCtx.destination);
                 } catch (e) {}
             }
-            extraVolume = 1;
+            audioState.extraVolume = 1;
             showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
             return;
         }
-        // 初始化Web Audio API
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (!sourceNode || lastVideo !== video) {
-            if (sourceNode) {
-                try { sourceNode.disconnect(); } catch (e) {}
-            }
-            sourceNode = audioCtx.createMediaElementSource(video);
-            lastVideo = video;
-        }
-        if (!gainNode) {
-            gainNode = audioCtx.createGain();
-        }
-        gainNode.gain.value = factor;
-        try {
-            sourceNode.disconnect();
-        } catch (e) {}
-        sourceNode.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        extraVolume = factor;
+
+        initAudioContext(video);
+        audioState.gainNode.gain.value = factor;
+        safeDisconnect(audioState.sourceNode);
+        audioState.sourceNode.connect(audioState.gainNode);
+        audioState.gainNode.connect(audioState.audioCtx.destination);
+        audioState.extraVolume = factor;
         showNotification(`超限音量: ${(video.volume * 100 * factor).toFixed(0)}%`);
     }
 
@@ -147,28 +149,53 @@
         const video = getVideoElement();
         if (!video) return;
         // 只有音量大于等于100%或已超限时才允许调节
-        if (video.volume >= 1 || extraVolume > 1) {
+        if (video.volume >= 1 || audioState.extraVolume > 1) {
             if (isUp) {
                 // 增大超限音量
-                if (extraVolume === 1) {
-                    applyExtraVolume(video, 1.5);
-                } else {
-                    applyExtraVolume(video, Math.min(extraVolume + 0.5, 5));
-                }
+                const newVolume = audioState.extraVolume === 1 ? 1.5 : Math.min(audioState.extraVolume + 0.5, 5);
+                applyExtraVolume(video, newVolume);
                 event.preventDefault();
             } else {
                 // 减小超限音量
-                if (extraVolume > 1) {
-                    if (extraVolume - 0.5 <= 1) {
-                        applyExtraVolume(video, 1);
-                    } else {
-                        applyExtraVolume(video, extraVolume - 0.5);
-                    }
+                if (audioState.extraVolume > 1) {
+                    const newVolume = audioState.extraVolume - 0.5 <= 1 ? 1 : audioState.extraVolume - 0.5;
+                    applyExtraVolume(video, newVolume);
                     event.preventDefault();
                 }
             }
         }
     }
+
+    // ========== 网站特定操作 ==========
+    function clickHuyaButton(buttonId, event) {
+        const btn = document.getElementById(buttonId);
+        if (btn) {
+            btn.click();
+            event.preventDefault();
+            return true;
+        }
+        return false;
+    }
+
+    function clickBiliBiliControl(video, selector, index) {
+        imitataMouseMove(video, 0, 0);
+        document.querySelectorAll(selector)[index].click();
+    }
+
+    const siteHandlers = {
+        mute: (video, event) => {
+            if (isHuya()) return clickHuyaButton('player-sound-btn', event);
+            if (isBiliBiliLive()) clickBiliBiliControl(video, '.left-area .icon', 2);
+        },
+        fullscreen: (video, event) => {
+            if (isHuya()) return clickHuyaButton('player-fullscreen-btn', event);
+            if (isBiliBiliLive()) clickBiliBiliControl(video, '.right-area .icon', 0);
+        },
+        theater: (video, event) => {
+            if (isHuya()) return clickHuyaButton('player-fullpage-btn', event);
+            if (isBiliBiliLive()) clickBiliBiliControl(video, '.right-area .icon', 1);
+        }
+    };
 
     // 键盘事件监听
     function handleKeyDown(event) {
@@ -192,72 +219,23 @@
         // 用 [ ] 控制超限音量
         else if (event.key === ']') {
             handleVolumeKeyByBracket(event, true);
-        } else if (event.key === '[') {
-            handleVolumeKeyByBracket(event, false);
         }
-        // 其它自定义调试键
-        else if (event.key === 'd') {
-            if (video) {
-                video.volume = 3;
-                showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
-            }
+        else if (event.key === '[') {
+            handleVolumeKeyByBracket(event, false);
         }
         // M 键 - 静音/取消静音
         else if (event.key === 'm' || event.key === 'M') {
-            if(window.location.hostname.includes('huya.com')) {
-                const muteBtn = document.getElementById('player-sound-btn');
-                if (muteBtn) {
-                    muteBtn.click();
-                    event.preventDefault();
-                }
-            }
-            else if(window.location.hostname.includes('live.bilibili.com')){
-                imitataMouseMove(video, 0, 0);
-                document.querySelectorAll('.left-area .icon')[2].click()
-            }
+            siteHandlers.mute(video, event);
         }
         // F键点击全屏按钮
         else if (event.key === 'f' || event.key === 'F') {
-            if (window.location.hostname.includes('huya.com')) {
-                const fullscreenBtn = document.getElementById('player-fullscreen-btn');
-                if (fullscreenBtn) {
-                    fullscreenBtn.click();
-                    event.preventDefault();
-                }
-            }
-            else if(window.location.hostname.includes('live.bilibili.com')){
-                imitataMouseMove(video, 0, 0);
-                document.querySelectorAll('.right-area .icon')[0].click()
-            }
+            siteHandlers.fullscreen(video, event);
         }
         //P键剧场模式
         else if (event.key === 'p' || event.key === 'P') {
-            if(window.location.hostname.includes('huya.com')) {
-                const playBtn = document.getElementById('player-fullpage-btn');
-                if (playBtn) {
-                    playBtn.click();
-                    event.preventDefault();
-                }
-            }
-            else if(window.location.hostname.includes('live.bilibili.com')){
-                imitataMouseMove(video, 0, 0);
-                document.querySelectorAll('.right-area .icon')[1].click();
-            }
+            siteHandlers.theater(video, event);
         }
     }
-
-    // 空格键释放时恢复用户设置的速度
-    document.addEventListener('keyup', function(event) {
-        if (event.key === ' ') {
-            const video = getVideoElement();
-            if (video && video.playbackRate === 2.0) {
-
-                // video.playbackRate = userSetSpeed;
-                // showNotification(`恢复播放: ${userSetSpeed.toFixed(2)}x`);
-                event.preventDefault();
-            }
-        }
-    });
 
     /* 鼠标按键事件模拟 */
     function imitateMouseClick(type, oElement, iClientX, iClientY) {
@@ -270,32 +248,40 @@
 
     /* 鼠标移动事件模拟 */
     function imitataMouseMove(oElement, clientX, clientY) {
-        var doc = oElement.ownerDocument;
-        var win = doc.defaultView || doc.parentWindow;
-        var mousemove = document.createEvent("MouseEvent");
+        const doc = oElement.ownerDocument;
+        const win = doc.defaultView || doc.parentWindow;
+        const mousemove = document.createEvent("MouseEvent");
         mousemove.initMouseEvent("mousemove", true, true, win, 0, clientX, clientY, clientX, clientY, 0, 0, 0, 0, 0, null);
         oElement.dispatchEvent(mousemove);
     }
 
-    // 初始化通知
+    // 清理资源
+    function cleanup() {
+        safeDisconnect(audioState.sourceNode);
+        safeDisconnect(audioState.gainNode);
+        if (audioState.audioCtx) {
+            audioState.audioCtx.close().catch(() => {});
+        }
+        document.removeEventListener('keydown', handleKeyDown);
+    }
+
+    // 初始化
+    let isInitialized = false;
     function init() {
-        // const video = getVideoElement();
-        // if (video) {
-        //     //showNotification(`当前播放速度: ${video.playbackRate.toFixed(2)}x`);
-        // } else {
-        //     // 如果视频元素还没加载，稍后再试
-        //     setTimeout(init, 1000);
-        // }
+        if (isInitialized) return;
 
         setTimeout(() => {
             document.addEventListener('keydown', handleKeyDown);
+            isInitialized = true;
             console.log('播放速度控制脚本已加载');
         }, 2000); // 2 seconds delay
     }
 
-    // 页面加载完成后初始化
     window.addEventListener('load', init);
-    window.addEventListener('yt-navigate-finish', init);
-    // 直接调用，防止事件已触发过导致监听不到
+    window.addEventListener('yt-navigate-finish', () => {
+        cachedVideo = null;
+        init();
+    });
+    window.addEventListener('beforeunload', cleanup);
     init();
 })();
