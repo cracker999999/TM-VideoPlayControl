@@ -9,6 +9,8 @@
 // @match        *://www.bilibili.com/video/*
 // @match        *://live.bilibili.com/*
 // @match        *://www.huya.com/*
+// @match        *://91porn.com/view_video.php*
+// @match        *://www.91porn.com/view_video.php*
 // @grant        none
 // ==/UserScript==
 
@@ -18,6 +20,8 @@
     // 配置参数
     const config = {
         speedIncrement: 0.25, // 每次增加/减少的速度值
+        seekStepSeconds: 10, // 91Porn 左右方向键步进秒数
+        volumeStep: 0.1, // 91Porn 上下方向键音量步进
         minSpeed: 0.25, // 最小播放速度
         maxSpeed: 5.0, // 最大播放速度
         showNotification: true, // 是否显示速度变化通知
@@ -27,6 +31,7 @@
     // 网站检测
     const isHuya = () => window.location.hostname.includes('huya.com');
     const isBiliBiliLive = () => window.location.hostname.includes('live.bilibili.com');
+    const is91Porn = () => window.location.hostname === '91porn.com' || window.location.hostname === 'www.91porn.com';
 
     // 创建通知元素
     let notification = document.createElement('div');
@@ -89,6 +94,64 @@
 
         video.playbackRate = newSpeed;
         showNotification(`播放速度: ${newSpeed.toFixed(2)}x`);
+    }
+
+    function changeCurrentTime(video, deltaSeconds) {
+        if (!video) return;
+
+        // 边界处理：后退不小于 0；前进在已知时长场景下不超过 duration
+        const targetTime = video.currentTime + deltaSeconds;
+        if (deltaSeconds < 0) {
+            video.currentTime = Math.max(0, targetTime);
+            return;
+        }
+
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = Math.min(video.duration, targetTime);
+            return;
+        }
+
+        // 元数据未就绪时 duration 可能是 NaN，此时仅保证不出现负值
+        video.currentTime = Math.max(0, targetTime);
+    }
+
+    function changeNativeVolume(video, delta) {
+        if (!video) return;
+        video.volume = Math.max(0, Math.min(1, video.volume + delta));
+        showNotification(`音量: ${(video.volume * 100).toFixed(0)}%`);
+    }
+
+    function togglePlayState(video) {
+        if (!video) return;
+        if (video.paused) {
+            video.play();
+        } else {
+            video.pause();
+        }
+    }
+
+    function toggle91PornFullscreen(video) {
+        const fullscreenBtn = document.querySelector('#player_one > div.vjs-control-bar > button.vjs-fullscreen-control.vjs-control.vjs-button');
+        if (fullscreenBtn) {
+            // 优先点击播放器内置按钮，保持站点自身全屏状态同步
+            fullscreenBtn.click();
+            return;
+        }
+
+        if (!video) return;
+
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+            return;
+        }
+
+        if (video.requestFullscreen) {
+            video.requestFullscreen();
+        } else if (video.webkitRequestFullscreen) {
+            video.webkitRequestFullscreen();
+        } else if (video.msRequestFullscreen) {
+            video.msRequestFullscreen();
+        }
     }
 
     // ========== 超限音量控制 ==========
@@ -186,10 +249,21 @@
         mute: (video, event) => {
             if (isHuya()) return clickHuyaButton('player-sound-btn', event);
             if (isBiliBiliLive()) clickBiliBiliControl(video, '.left-area .icon', 2);
+            if (is91Porn()) {
+                if (!video) return false;
+                video.muted = !video.muted;
+                event.preventDefault();
+                return true;
+            }
         },
         fullscreen: (video, event) => {
             if (isHuya()) return clickHuyaButton('player-fullscreen-btn', event);
             if (isBiliBiliLive()) clickBiliBiliControl(video, '.right-area .icon', 0);
+            if (is91Porn()) {
+                toggle91PornFullscreen(video);
+                event.preventDefault();
+                return true;
+            }
         },
         theater: (video, event) => {
             if (isHuya()) return clickHuyaButton('player-fullpage-btn', event);
@@ -205,6 +279,35 @@
         }
 
         const video = getVideoElement();
+
+        // 91Porn 专用按键：复用统一 video 查询与通知能力，避免站点脚本重复维护
+        if (is91Porn()) {
+            if (event.key === 'ArrowLeft') {
+                changeCurrentTime(video, -config.seekStepSeconds);
+                event.preventDefault();
+                return;
+            }
+            if (event.key === 'ArrowRight') {
+                changeCurrentTime(video, config.seekStepSeconds);
+                event.preventDefault();
+                return;
+            }
+            if (event.key === 'ArrowUp') {
+                changeNativeVolume(video, config.volumeStep);
+                event.preventDefault();
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                changeNativeVolume(video, -config.volumeStep);
+                event.preventDefault();
+                return;
+            }
+            if (event.key === ' ') {
+                togglePlayState(video);
+                event.preventDefault();
+                return;
+            }
+        }
 
         // 按键 + 增加速度
         if (event.key === '+' || event.key === '=') {
