@@ -1,40 +1,54 @@
-# YouTube/B站播放速度控制脚本
+# 视频网站播放控制脚本
 
 ## 项目简介
-本项目为一款适用于 Tampermonkey 的用户脚本，支持在 YouTube 和 B站（bilibili）视频播放页面通过键盘快捷键快速调整视频播放速度。
+这是一个 Tampermonkey 用户脚本，统一提供多站点视频快捷键控制，包含倍速、超限音量、全屏/剧场模式和 91Porn 的方向键控制。
 
-## 功能特性
-- 支持 YouTube 与 B站主流视频页面
-- 通过按键 `+` 或 `=` 增加播放速度，按键 `-` 或 `_` 减小播放速度
-- 可自定义每次调整的速度增量、最小/最大速度
-- 可选的屏幕通知，显示当前播放速度
-- 自动适配页面视频元素
+## 脚本文件
+- `video_play_control.user.js`
 
-## 安装方法
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展。
-2. 新建脚本，将本项目的 `youtube_speed_control.user.js` 代码粘贴进去并保存。
-3. 脚本会自动在支持的网站生效。
+## 支持站点
+- `https://www.youtube.com/*`
+- `https://www.bilibili.com/video/*`
+- `https://live.bilibili.com/*`
+- `https://www.huya.com/*`
+- `https://91porn.com/view_video.php*`
+- `https://www.91porn.com/view_video.php*`
 
-## 支持网站
-- https://www.youtube.com/*
-- https://www.bilibili.com/video/*
+## 快捷键
+| 按键 | 功能 | 站点范围 | 说明 |
+|---|---|---|---|
+| `+` / `=` | 提高播放速度 | 全部支持站点 | 按 `speedIncrement` 增加，受 `minSpeed/maxSpeed` 限制 |
+| `-` / `_` | 降低播放速度 | 全部支持站点 | 按 `speedIncrement` 减少，受 `minSpeed/maxSpeed` 限制 |
+| `]` | 提高超限音量 | 全部支持站点 | 仅在原生音量已到 100% 或已进入超限状态时生效 |
+| `[` | 降低超限音量 | 全部支持站点 | 降到 `1x` 时自动回归原生音量链路 |
+| `M` | 静音/取消静音 | 虎牙、B站直播、91Porn | 91Porn 直接切 `video.muted` |
+| `F` | 全屏切换 | 虎牙、B站直播、91Porn | 91Porn 优先点击播放器内置全屏按钮，失败时回退原生全屏 |
+| `P` | 剧场模式/网页全屏 | 虎牙、B站直播 | 虎牙触发网页全屏按钮；B站直播触发剧场模式按钮 |
+| `ArrowLeft` | 后退 | 仅 91Porn | 每次后退 `seekStepSeconds` 秒 |
+| `ArrowRight` | 前进 | 仅 91Porn | 每次前进 `seekStepSeconds` 秒 |
+| `ArrowUp` | 增加音量 | 仅 91Porn | 每次增加 `volumeStep`，上限 100% |
+| `ArrowDown` | 减少音量 | 仅 91Porn | 每次减少 `volumeStep`，下限 0% |
+| `Space` | 播放/暂停 | 仅 91Porn | 切换当前视频播放状态 |
 
-## 使用方式
-- 在视频播放页面，直接按下 `+` 或 `=` 键：**增加播放速度**
-- 按下 `-` 或 `_` 键：**减小播放速度**
-- 每次调整的速度增量、最小/最大速度可在脚本顶部 `config` 变量中自定义
-- 屏幕中央会弹出当前速度的通知（可在 `config.showNotification` 关闭）
+## 配置参数
+`config` 位于脚本顶部，可直接修改：
 
-## 核心参数说明
-| 参数名                | 说明                 | 默认值   |
-|----------------------|----------------------|---------|
-| speedIncrement       | 每次调整的速度增量   | 0.25    |
-| minSpeed             | 最小播放速度         | 0.25    |
-| maxSpeed             | 最大播放速度         | 5.0     |
-| showNotification     | 是否显示速度通知     | true    |
-| notificationDuration | 通知显示时长（毫秒） | 1000    |
+| 参数名 | 说明 | 默认值 |
+|---|---|---|
+| `speedIncrement` | 倍速每次调整步进 | `0.25` |
+| `seekStepSeconds` | 91Porn 左右方向键步进秒数 | `10` |
+| `volumeStep` | 91Porn 上下方向键音量步进 | `0.1` |
+| `minSpeed` | 最小播放速度 | `0.25` |
+| `maxSpeed` | 最大播放速度 | `5.0` |
+| `showNotification` | 是否显示屏幕通知 | `true` |
+| `notificationDuration` | 通知显示时长（毫秒） | `1000` |
 
-## 其他说明
-- 脚本会自动适配 YouTube 和 B站的视频元素。
-- 在输入框、文本域等输入区域内按键不会触发速度调整，避免误操作。
-- 如需自定义快捷键或功能，可直接修改脚本源码。
+## 安装
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/)。
+2. 新建脚本并粘贴 `video_play_control.user.js` 内容后保存。
+3. 打开支持站点的视频页面后自动生效。
+
+## 行为说明
+- 在 `input`、`textarea`、可编辑元素中不会响应快捷键，避免输入时误触发。
+- 视频元素使用缓存查询，页面路由切换（如 YouTube）会重置缓存并重新初始化。
+- 超限音量通过 Web Audio `GainNode` 实现，回落到 `1x` 时恢复原生音量路径。
