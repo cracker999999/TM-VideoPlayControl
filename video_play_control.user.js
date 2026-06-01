@@ -20,8 +20,8 @@
     // 配置参数
     const config = {
         speedIncrement: 0.25, // 每次增加/减少的速度值
-        seekStepSeconds: 10, // 91Porn 左右方向键步进秒数
-        volumeStep: 0.1, // 91Porn 上下方向键音量步进
+        seekStepSeconds: 10, // 左右方向键步进秒数
+        volumeStep: 0.05, // 上下方向键音量步进
         minSpeed: 0.25, // 最小播放速度
         maxSpeed: 5.0, // 最大播放速度
         showNotification: true, // 是否显示速度变化通知
@@ -46,16 +46,37 @@
         border-radius: 5px;
         font-size: 16px;
         font-weight: bold;
-        z-index: 9999;
+        z-index: 2147483647;
+        pointer-events: none;
         display: none;
         transition: opacity 0.3s;
     `;
     document.body.appendChild(notification);
 
+    function ensureNotificationVisibleInFullscreen() {
+        if (!notification) return;
+
+        const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+        if (fullscreenElement) {
+            // 91Porn 全屏通常不是 video 元素本身，通知必须挂到当前全屏根节点才不会被裁剪或遮挡
+            if (notification.parentNode !== fullscreenElement) {
+                fullscreenElement.appendChild(notification);
+            }
+            notification.style.position = 'fixed';
+        } else {
+            // 退出全屏后恢复到 body，避免影响其他站点定位
+            if (notification.parentNode !== document.body) {
+                document.body.appendChild(notification);
+            }
+            notification.style.position = 'fixed';
+        }
+    }
+
     // 显示通知
     function showNotification(message) {
         if (!config.showNotification) return;
 
+        ensureNotificationVisibleInFullscreen();
         notification.textContent = message;
         notification.style.display = 'block';
         notification.style.opacity = '1';
@@ -152,6 +173,10 @@
         } else if (video.msRequestFullscreen) {
             video.msRequestFullscreen();
         }
+    }
+
+    function handleFullscreenChange() {
+        ensureNotificationVisibleInFullscreen();
     }
 
     // ========== 超限音量控制 ==========
@@ -385,6 +410,9 @@
         cachedVideo = null;
         init();
     });
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     window.addEventListener('beforeunload', cleanup);
     init();
 })();
